@@ -1,6 +1,9 @@
 import math
 import numpy as np
 import decimal
+import concurrent.futures
+from tqdm import tqdm
+import time
 
 import sys
 import re
@@ -433,13 +436,25 @@ def min_SD_ISDq(N, k, t, q, p):
 # Note that the result of sub_SD_ISD convex in p and l
 def SD_ISD_q(N, k, t, q):
     wholemin = sub_SD_ISDq(N, k, t, q, 0, 0)
-    for p in range(int(t / 2)):
-        min = min_SD_ISDq(N, k, t, q, p)
+    p_range = range(int(t / 2))
 
-        if min <= wholemin:
-            wholemin = min
-        if min > wholemin + 30:
-            break
+    start = time.time()
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        # Map the function min_SD_ISDq over the range of p in parallel
+        future_to_p = {executor.submit(min_SD_ISDq, N, k, t, q, p): p for p in p_range}
+        
+        # Collect results as they are completed
+        for future in concurrent.futures.as_completed(future_to_p):
+            min_value = future.result()
+            p = future_to_p[future]
+
+            if min_value <= wholemin:
+                wholemin = min_value
+            if min_value > wholemin + 30:
+                break
+    end = time.time()
+    print("Time taken for SD_ISD_q: ", end - start)
+    print("Min: " + str(wholemin))
 
     T1 = Gauss(N, k, t)
     if wholemin > T1:
@@ -601,14 +616,24 @@ def AGBforq(n, k, h):
     finalcost = 999999
     finalf = 99999
     finalmu = 999999
-    for f in range(0, h):
-        for mu in range(0, math.floor(n / h)):
-            if f * mu < k + 1:
-                subcost = subAGBforq(n, k, h, f, mu)
-                if finalcost > subcost:
-                    finalcost = subcost
-                    finalf = f
-                    finalmu = mu
+
+    tasks = [(f, mu) for f in range(0, h) for mu in range(0, math.floor(n / h)) if f * mu < k + 1]
+
+    start = time.time()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_p = {executor.submit(subAGBforq, n, k, h, f, mu): (f, mu) for f, mu in tasks}
+
+        for future in concurrent.futures.as_completed(future_to_p):
+            cost = future.result()
+            f, mu = future_to_p[future]
+            if finalcost > cost:
+                finalcost = cost
+                finalf = f
+                finalmu = mu
+
+    end = time.time()
+    print("Time taken for AGBforq: ", end - start)
+    print("Final cost: " + str(finalcost))
     #print(subsubAGBforq(n, k, h, finalf, finalmu))
     #print(finalf)
     #print(finalmu)
@@ -815,6 +840,7 @@ def analysisforq(N, k, t, q):
 
 
 def analysisforqregular(N, k, t, q):
+    print("analysisforqregular")
     T1 = AGBforq(N, k, t)
 
     #N = N - t
